@@ -10,9 +10,27 @@ jobs:
   build-iso:
     runs-on: ubuntu-24.04
 
+    env:
+      GO_VERSION: "1.24"
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build Go binary
+        run: |
+          go mod download
+          go build -o rmstool .
+
+      - name: Copy binary into Docker build context
+        run: |
+          cp rmstool isobuild/rmstool
+          chmod +x isobuild/rmstool
 
       - name: Build ISO builder image
         run: |
