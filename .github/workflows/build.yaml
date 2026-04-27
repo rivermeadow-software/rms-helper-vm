@@ -1,0 +1,48 @@
+name: Build Alpine ISO
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build ISO builder image
+        run: |
+          cd isobuild
+          docker build -t alpine-iso-builder .
+
+      - name: Prepare artifact directory
+        run: mkdir -p artifacts
+
+      - name: Run ISO build in container
+        run: |
+          docker run --rm --privileged \
+            -v "${{ github.workspace }}/artifacts:/iso" \
+            alpine-iso-builder
+
+      - name: Verify ISO output
+        run: |
+          ls -lah artifacts
+          find artifacts -type f -name "*.iso"
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd artifacts
+          sha256sum *.iso > SHA256SUMS.txt
+
+      - name: Upload ISO artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpine-custom-iso
+          path: |
+            artifacts/*.iso
+            artifacts/SHA256SUMS.txt
+          retention-days: 14

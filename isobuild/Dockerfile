@@ -1,5 +1,8 @@
 # create custom alpine linux iso using aports
 FROM alpine:3.22
+ENV ALPINE_TAG=v3.22
+ENV ALPINE_ARCH=x86_64
+ENV ALPINE_PROFILE=helper_kvm
 RUN apk update && apk upgrade
 RUN apk add --no-cache bash curl xorriso syslinux mtools abuild alpine-conf squashfs-tools grub git doas openssh coreutils vim qemu-guest-agent sysklogd-openrc
 RUN git clone --depth=1 https://gitlab.alpinelinux.org/alpine/aports.git
@@ -33,5 +36,4 @@ COPY traffic-filter.conf aports/scripts/traffic-filter.conf
 COPY rmstool aports/scripts/rmstool
 
 #WORKDIR /build
-
-CMD ["sh", "aports/scripts/mkimage.sh", "--tag", "v3.22", "--arch", "x86_64", "--outdir", "/iso", "--repository", "http://10.0.0.85/v3.22/main", "--repository","http://10.0.0.85/v3.22/community", "--profile", "helper_kvm"]
+CMD ["sh", "-c", "aports/scripts/mkimage.sh --tag ${ALPINE_TAG} --arch ${ALPINE_ARCH} --outdir /iso --repository https://dl-cdn.alpinelinux.org/alpine/${ALPINE_TAG}/main --repository https://dl-cdn.alpinelinux.org/alpine/${ALPINE_TAG}/community --profile ${ALPINE_PROFILE}"]
