@@ -16,3 +16,7 @@ cp isobuild/iso/alpine-helper_kvm-v3.22-x86_64.iso citesting/vme
 cd citesting/vme
 # run the vme tests
 go run main.go
+
+
+#sh aports/scripts/mkimage.sh --tag v3.22 --arch x86_64 --outdir /iso --repository http://10.0.0.85/v3.22/main --repository http://1
+#0.0.0.85/v3.22/community --profile helper_kvm

@@ -41,18 +41,49 @@ cp /aports/scripts/traffic-filter.conf "$tmp"/etc/traffic-filter.conf
 cp /aports/scripts/rmstool "$tmp"/etc/rmstool
 chmod 755 "$tmp"/etc/rmstool
 
-# create a service file for rmstool
-mkdir -p "$tmp"/etc/init.d
-makefile root:root 0755 "$tmp"/etc/init.d/rmstool <<'EOF'	
-#!/sbin/openrc-run
+mkdir -p "$tmp"/home/appliance
+mkdir -p "$tmp"/usr/local/bin
 
-command="/etc/rmstool"
-pidfile="/var/run/rmstool.pid"
-name="rmstool"
-description="RMS Tool Service"
-depend() {
-	after net
-}
+makefile root:root 0644 "$tmp"/etc/passwd <<'EOF'
+root:x:0:0:root:/root:/bin/sh
+appliance:x:1000:1000:Appliance User:/home/appliance:/bin/sh
+EOF
+
+makefile root:root 0644 "$tmp"/etc/group <<'EOF'
+root:x:0:
+appliance:x:1000:
+EOF
+
+makefile root:root 0644 "$tmp"/etc/shadow <<'EOF'
+root:*:19700:0:99999:7:::
+appliance:*:19700:0:99999:7:::
+EOF
+
+chown -R 1000:1000 "$tmp"/home/appliance
+
+makefile root:root 0755 "$tmp"/etc/kiosk-launch <<'EOF'
+#!/bin/sh
+
+export TERM=xterm-256color
+clear
+
+#cd /home/appliance || exit 1
+
+#exec su -s /bin/sh appliance -c /etc/rmstool
+
+exec /etc/rmstool
+
+EOF
+
+makefile root:root 0644 "$tmp"/etc/inittab <<'EOF'
+::sysinit:/sbin/openrc sysinit
+::sysinit:/sbin/openrc boot
+::wait:/sbin/openrc default
+::shutdown:/sbin/openrc shutdown
+
+tty1::respawn:/etc/kiosk-launch </dev/tty1 >/dev/tty1 2>&1
+
+::shutdown:/bin/umount -a -r
 EOF
 
 # mkdir -p "$tmp"/etc/network
@@ -88,7 +119,6 @@ rc_add syslog boot
 rc_add qemu-guest-agent boot
 rc_add klogd boot
 rc_add nftables boot
-rc_add doas boot
 rc_add local default
 
 rc_add mount-ro shutdown

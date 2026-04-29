@@ -44,9 +44,9 @@ var testProfiles = []testProfile{
 		name:        "RiverMeadow Platform",
 		description: "Test connectivity to RiverMeadow platform",
 		tests: []troubleshootingTest{
-			{testType: "dnsResolve", url: ""},
+			{testType: "dnsResolve"},
 			{testType: "networkPort", port: 443, protocol: "TCP"},
-			{testType: "sslInterception", url: "app.rivermeadow.com"},
+			{testType: "sslInterception"},
 		},
 	},
 	{
@@ -70,6 +70,13 @@ var testProfiles = []testProfile{
 		description: "Test connectivity to source server",
 		tests: []troubleshootingTest{
 			{testType: "networkPort", port: 5994, protocol: "TCP"},
+		},
+	},
+	{
+		name:        "ICMP Ping",
+		description: "Test basic network connectivity with ICMP ping",
+		tests: []troubleshootingTest{
+			{testType: "icmpPing"},
 		},
 	},
 }
@@ -248,6 +255,7 @@ func initialModel() model {
 		item{"Migration Appliance", "Test connectivity to migration appliance"},
 		item{"Source Worker Appliance", "Test connectivity to source worker appliance"},
 		item{"Source Server", "Test connectivity to source server"},
+		item{"ICMP Ping", "Test basic network connectivity with ICMP ping"},
 	}
 
 	profiles := list.New(profileItems, customDelegate{}, 0, 0)
@@ -826,23 +834,25 @@ func runDiagnostics(target string, profile string) []testResult {
 					// Run SSL interception test
 					output := sslIssuerTest(target, "Amazon")
 					results = append(results, output)
+				case "icmpPing":
+					result := Ping(target, 4, 2*time.Second)
+					var outStatus testStatus
+					if result.Success {
+						outStatus = pass
+					} else {
+						outStatus = fail
+					}
+					results = append(results, testResult{
+						name:   "ICMP Ping",
+						status: outStatus,
+						value:  result.Output,
+					})
 				default:
 					fmt.Printf("Unknown test type: %s\n", t.testType)
 				}
 			}
 		}
 	}
-
-	// // ICMP (simulated)
-	// start := time.Now()
-	// time.Sleep(40 * time.Millisecond)
-	// latency := time.Since(start)
-
-	// results = append(results, testResult{
-	// 	name:   "ICMP Ping",
-	// 	status: pass,
-	// 	value:  latency.String(),
-	// })
 
 	return results
 }
