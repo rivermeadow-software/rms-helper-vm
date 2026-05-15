@@ -24,7 +24,7 @@ func main() {
 		VMEGroup:              "rmslab",
 		VMECloud:              "vmecloud",
 		VMECluster:            "vmecluster",
-		VMENetwork:            "Management",
+		VMENetwork:            "rmsmigration",
 		VMEInternalNetwork:    "rmdemo",
 		VMEDatastore:          "local",
 		ApplianceInstanceName: "rmshelper",
@@ -124,10 +124,11 @@ func VMEDeploy(vmeConfig VMEApplianceDeployConfig) {
 			"virtualImage": map[string]interface{}{
 				"name":                 virtualImageName,
 				"imageType":            "iso",
-				"isCloudInit":          true,
+				"isCloudInit":          false,
 				"installAgent":         false,
-				"virtioSupported":      true,
+				"virtioSupported":      false,
 				"isForceCustomization": false,
+				"vmToolsInstalled":     false,
 				//"osType":               "linux",
 				//	"userData": cloudInitData,
 			},
@@ -235,7 +236,7 @@ func VMEDeploy(vmeConfig VMEApplianceDeployConfig) {
 		"layout": map[string]interface{}{
 			//	"name":              "Single HPE VM",
 			//	"provisionTypeCode": "kvm",
-			"id": 25,
+			"id": 32,
 		},
 	}
 

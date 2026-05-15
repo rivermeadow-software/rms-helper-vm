@@ -42,7 +42,7 @@ type troubleshootingTest struct {
 var testProfiles = []testProfile{
 	{
 		name:        "RiverMeadow Platform",
-		description: "Test connectivity to RiverMeadow platform",
+		description: "Test connectivity to the RiverMeadow platform",
 		tests: []troubleshootingTest{
 			{testType: "dnsResolve"},
 			{testType: "networkPort", port: 443, protocol: "TCP"},
@@ -51,23 +51,24 @@ var testProfiles = []testProfile{
 	},
 	{
 		name:        "Migration Appliance",
-		description: "Test connectivity to migration appliance",
+		description: "Test connectivity to the migration appliance",
 		tests: []troubleshootingTest{
 			{testType: "networkPort", port: 8888, protocol: "TCP"},
 			{testType: "networkPort", port: 10000, protocol: "TCP"},
+			{testType: "networkPort", port: 8080, protocol: "TCP"},
 			{testType: "networkPort", port: 443, protocol: "TCP"},
 		},
 	},
 	{
 		name:        "Source Worker Appliance",
-		description: "Test connectivity to source worker appliance",
+		description: "Test connectivity to the source worker appliance",
 		tests: []troubleshootingTest{
 			{testType: "networkPort", port: 5994, protocol: "TCP"},
 		},
 	},
 	{
 		name:        "Source Server",
-		description: "Test connectivity to source server",
+		description: "Test connectivity to the source server",
 		tests: []troubleshootingTest{
 			{testType: "networkPort", port: 5994, protocol: "TCP"},
 		},
@@ -157,9 +158,12 @@ type model struct {
 	networkSelection    int
 	networkInputFocus   int
 	networkSectionFocus networkSection
+	dhcpRunning         bool
 
 	status string
 }
+
+type dhcpResultMsg struct{ err error }
 
 type networkSection int
 
@@ -414,6 +418,9 @@ func (m model) currentContent() string {
 			content += form
 		}
 		applyLabel := "[ Apply Settings ]"
+		if m.dhcpRunning {
+			applyLabel = "[ Requesting... ]"
+		}
 
 		if m.networkSectionFocus == sectionApply {
 			applyLabel = "> " + applyLabel
@@ -530,6 +537,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 
+	case dhcpResultMsg:
+		m.dhcpRunning = false
+		if msg.err != nil {
+			m.status = "DHCP failed: no address obtained"
+		} else {
+			m.status = "Network settings applied"
+		}
+		return m, tea.Batch(cmds...)
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -629,24 +645,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.networkInputFocus = 0
 					}
 				} else if m.networkSectionFocus == sectionApply {
-					var err error
-
 					if m.networkMode == modeDHCP {
-						err = applyDHCP()
+						if m.dhcpRunning {
+							break
+						}
+						m.dhcpRunning = true
+						m.status = "Requesting DHCP address..."
+						cmds = append(cmds, func() tea.Msg {
+							return dhcpResultMsg{err: applyDHCP()}
+						})
 					} else {
-						err = applyStatic(
+						err := applyStatic(
 							m.inputs[0].Value(),
 							m.inputs[1].Value(),
 							m.inputs[2].Value(),
 							m.inputs[3].Value(),
 							m.inputs[4].Value(),
 						)
-					}
-
-					if err != nil {
-						m.status = "Failed: " + err.Error()
-					} else {
-						m.status = "Network settings applied"
+						if err != nil {
+							m.status = "Failed: " + err.Error()
+						} else {
+							m.status = "Network settings applied"
+						}
 					}
 				}
 			}
@@ -795,6 +815,27 @@ func runDiagnostics(target string, profile string) []testResult {
 
 	for _, p := range testProfiles {
 		if p.name == profile {
+			// Add additional standard tests for RiverMeadow platform profile
+			if p.name == "RiverMeadow Platform" && target == "migrate.rivermeadow.com" {
+				backendHosts := []string{"52.9.247.1", "52.9.142.11"}
+				for _, host := range backendHosts {
+					conn, err := net.DialTimeout("tcp", host+":443", 2*time.Second)
+					if err != nil {
+						results = append(results, testResult{
+							name:   fmt.Sprintf("TCP (%s:443)", host),
+							status: fail,
+							value:  "unreachable",
+						})
+					} else {
+						conn.Close()
+						results = append(results, testResult{
+							name:   fmt.Sprintf("TCP (%s:443)", host),
+							status: pass,
+							value:  "open",
+						})
+					}
+				}
+			}
 			for _, t := range p.tests {
 				switch t.testType {
 				case "dnsResolve":
@@ -920,7 +961,13 @@ func formatName(name pkix.Name) string {
 }
 
 func applyDHCP() error {
-	cmd := exec.Command("udhcpc", "-i", "eth0", "-q")
+	// Kill any existing udhcpc on this interface so its lease file doesn't
+	// block a fresh attempt after a previous failure.
+	_, _ = exec.Command("killall", "-q", "udhcpc").CombinedOutput()
+	_, _ = exec.Command("ip", "addr", "flush", "dev", "eth0").CombinedOutput()
+	_, _ = exec.Command("ip", "link", "set", "eth0", "up").CombinedOutput()
+
+	cmd := exec.Command("udhcpc", "-i", "eth0", "-q", "-t", "2", "-n")
 	return cmd.Run()
 }
 
