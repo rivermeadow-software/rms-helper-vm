@@ -28,20 +28,6 @@ profile_demo() {
     apkovl="aports/scripts/genapkovl-mkimgoverlay.sh"
 }
 
-# profile_helper_kvm() {
-# 	title="helper"
-# 	desc="Alpine as it was intended.
-# 		Just enough to get you started.
-# 		Network connection is required."
-# 	profile_base
-# 	profile_abbrev="hlp"
-# 	image_ext="iso"
-# 	arch="x86_64"
-# 	output_format="iso"
-# 	kernel_addons=""
-# 	apks="$apks"
-# }
-
 profile_helper_vmware() {
     profile_base
     # Customize kernel options, e.g., for specific hardware or boot parameters

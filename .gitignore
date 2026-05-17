@@ -1,3 +1,5 @@
 *.iso
 rmstool
 rms-helper-vm
+build.sh
+citesting/*

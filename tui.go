@@ -140,6 +140,7 @@ const (
 	focusContent
 	focusProfiles
 	focusNetworkSettings
+	focusSystemManagement
 )
 
 type model struct {
@@ -160,10 +161,15 @@ type model struct {
 	networkSectionFocus networkSection
 	dhcpRunning         bool
 
+	sysMgmtSelection  int
+	sysMgmtConfirm    bool
+	sysMgmtConfirmSel int
+
 	status string
 }
 
 type dhcpResultMsg struct{ err error }
+type diagResultMsg struct{ results []testResult }
 
 type networkSection int
 
@@ -239,6 +245,7 @@ func initialModel() model {
 		item{"Show System Information", "Show detailed system information"},
 		item{"Network Settings", "Configure network settings"},
 		item{"Troubleshooting", "Run diagnostics"},
+		item{"System Management", "Restart or shutdown the system"},
 	}
 
 	l := list.New(items, customDelegate{}, 0, 0)
@@ -255,10 +262,10 @@ func initialModel() model {
 	inputs[0].Focus()
 
 	profileItems := []list.Item{
-		item{"RiverMeadow Platform", "Test connectivity to RiverMeadow platform"},
-		item{"Migration Appliance", "Test connectivity to migration appliance"},
-		item{"Source Worker Appliance", "Test connectivity to source worker appliance"},
-		item{"Source Server", "Test connectivity to source server"},
+		item{"RiverMeadow Platform", "Test connectivity to the RiverMeadow platform"},
+		item{"Migration Appliance", "Test connectivity to a migration appliance"},
+		item{"Source Worker Appliance", "Test connectivity to a source worker appliance"},
+		item{"Source Server", "Test connectivity to a source server"},
 		item{"ICMP Ping", "Test basic network connectivity with ICMP ping"},
 	}
 
@@ -270,7 +277,7 @@ func initialModel() model {
 	vp := viewport.New(0, 0)
 
 	in := textinput.New()
-	in.Placeholder = "hostname or ip"
+	in.Placeholder = "Hostname or IP Address"
 	in.SetValue("")
 	in.CharLimit = 128
 	in.Width = 40
@@ -338,6 +345,7 @@ func (m model) currentContent() string {
 
 		defaultGateway := getDefaultGateway()
 		dnsServers := getDNSServers()
+		ipType := getIPAddressType(ipAddress)
 
 		// read /sys/class/dmi/id/product_name for platform info
 		productNameBytes, err := os.ReadFile("/sys/class/dmi/id/product_name")
@@ -347,8 +355,9 @@ func (m model) currentContent() string {
 		}
 
 		return fmt.Sprintf(
-			"System Information\n\nPlatform: %s\nIP Address: %s\nSubnet Mask: %s\nDefault Gateway: %s\nDNS Servers: %s",
+			"System Information\n\nPlatform: %s\nIP Address Type: %s\nIP Address: %s\nSubnet Mask: %s\nDefault Gateway: %s\nDNS Servers: %s",
 			productName,
+			ipType,
 			ipAddress,
 			subnetMask,
 			defaultGateway,
@@ -482,9 +491,14 @@ func (m model) currentContent() string {
 					out += labelStyle.Render(fmt.Sprintf("Profile: %s", r.value)) + "\n\n"
 					continue
 				}
-				icon := failStyle.Render("✖")
-				if r.status == pass {
+				var icon string
+				switch r.status {
+				case pass:
 					icon = passStyle.Render("✔")
+				case running:
+					icon = blurred.Render("…")
+				default:
+					icon = failStyle.Render("✖")
 				}
 
 				out += fmt.Sprintf(
@@ -519,6 +533,46 @@ func (m model) currentContent() string {
 			resultsBlock + "\n\n" +
 			"Status: " + status
 
+	case 3:
+		fieldWidth := m.viewport.Width - 10
+		if fieldWidth < 40 {
+			fieldWidth = 40
+		}
+
+		actions := []string{"Restart", "Shutdown"}
+		actionLines := make([]string, len(actions))
+		for i, a := range actions {
+			prefix := "  "
+			if m.focus == focusSystemManagement && !m.sysMgmtConfirm && i == m.sysMgmtSelection {
+				prefix = "> "
+			}
+			actionLines[i] = prefix + a
+		}
+
+		content := "System Management\n\n" +
+			panelStyle.Width(fieldWidth).Render(strings.Join(actionLines, "\n"))
+
+		if m.sysMgmtConfirm {
+			action := actions[m.sysMgmtSelection]
+			warning := failStyle.Render("! " + action + " this system?")
+			confirmOpts := []string{
+				"[ Yes — " + action + " ]",
+				"[ No  — Cancel     ]",
+			}
+			confirmLines := make([]string, len(confirmOpts))
+			for i, opt := range confirmOpts {
+				prefix := "  "
+				if i == m.sysMgmtConfirmSel {
+					prefix = "> "
+				}
+				confirmLines[i] = prefix + opt
+			}
+			content += "\n\n" + warning + "\n\n" +
+				panelStyle.Width(fieldWidth).Render(strings.Join(confirmLines, "\n"))
+		}
+
+		return content
+
 	default:
 		return "No content available."
 	}
@@ -546,9 +600,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case diagResultMsg:
+		m.results = msg.results
+		return m, tea.Batch(cmds...)
+
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c":
+		case "ctrl+c":
 			return m, tea.Quit
 		case "enter":
 			if m.focus == focusProfiles {
@@ -560,11 +618,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					break
 				}
 
-				m.results = []testResult{
-					{name: "Running Suite", status: pass, value: m.profiles.SelectedItem().(item).title},
-				}
 				selectedProfile := m.profiles.SelectedItem().(item).title
-				m.results = append(m.results, runDiagnostics(target, selectedProfile)...)
+				m.results = pendingResults(selectedProfile)
+				profile := selectedProfile
+				cmds = append(cmds, func() tea.Msg {
+					results := []testResult{
+						{name: "Running Suite", status: pass, value: profile},
+					}
+					results = append(results, runDiagnostics(target, profile)...)
+					return diagResultMsg{results: results}
+				})
 
 			}
 		case "tab":
@@ -589,7 +652,55 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.focus = focusSidebar
 				}
 			}
+			if m.list.Index() == 3 {
+				if m.focus == focusSidebar {
+					m.focus = focusSystemManagement
+				} else {
+					m.focus = focusSidebar
+					m.sysMgmtConfirm = false
+				}
+			}
 		}
+	}
+
+	if m.list.Index() == 3 && m.focus == focusSystemManagement {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "up":
+				if m.sysMgmtConfirm {
+					if m.sysMgmtConfirmSel > 0 {
+						m.sysMgmtConfirmSel--
+					}
+				} else if m.sysMgmtSelection > 0 {
+					m.sysMgmtSelection--
+				}
+			case "down":
+				if m.sysMgmtConfirm {
+					if m.sysMgmtConfirmSel < 1 {
+						m.sysMgmtConfirmSel++
+					}
+				} else if m.sysMgmtSelection < 1 {
+					m.sysMgmtSelection++
+				}
+			case "enter", " ":
+				if !m.sysMgmtConfirm {
+					m.sysMgmtConfirm = true
+					m.sysMgmtConfirmSel = 1 // default to "No"
+				} else if m.sysMgmtConfirmSel == 0 {
+					if m.sysMgmtSelection == 0 {
+						_ = exec.Command("reboot").Run()
+					} else {
+						_ = exec.Command("poweroff").Run()
+					}
+				} else {
+					m.sysMgmtConfirm = false
+				}
+			case "esc", "n", "N":
+				m.sysMgmtConfirm = false
+			}
+		}
+		return m, tea.Batch(cmds...)
 	}
 
 	if m.list.Index() == 1 && m.focus == focusNetworkSettings {
@@ -810,6 +921,39 @@ func tui() {
 	}
 }
 
+func testDisplayName(t troubleshootingTest) string {
+	switch t.testType {
+	case "dnsResolve":
+		return "DNS Resolution"
+	case "networkPort":
+		return fmt.Sprintf("TCP (%d)", t.port)
+	case "sslInterception":
+		return "SSL Issuer Check"
+	case "icmpPing":
+		return "ICMP Ping"
+	default:
+		return t.testType
+	}
+}
+
+func pendingResults(profile string) []testResult {
+	results := []testResult{
+		{name: "Running Suite", status: pass, value: profile},
+	}
+	for _, p := range testProfiles {
+		if p.name == profile {
+			for _, t := range p.tests {
+				results = append(results, testResult{
+					name:   testDisplayName(t),
+					status: running,
+					value:  "pending...",
+				})
+			}
+		}
+	}
+	return results
+}
+
 func runDiagnostics(target string, profile string) []testResult {
 	results := []testResult{}
 
@@ -968,7 +1112,11 @@ func applyDHCP() error {
 	_, _ = exec.Command("ip", "link", "set", "eth0", "up").CombinedOutput()
 
 	cmd := exec.Command("udhcpc", "-i", "eth0", "-q", "-t", "2", "-n")
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	_ = os.WriteFile(networkStateFile, []byte("DHCP"), 0644)
+	return nil
 }
 
 func applyStatic(ip, mask, gw, dns1, dns2 string) error {
@@ -998,6 +1146,7 @@ func applyStatic(ip, mask, gw, dns1, dns2 string) error {
 		return err
 	}
 
+	_ = os.WriteFile(networkStateFile, []byte("Static"), 0644)
 	return nil
 }
 
@@ -1030,6 +1179,19 @@ func getDefaultGateway() string {
 	}
 
 	return ""
+}
+
+const networkStateFile = "/tmp/networkstate"
+
+func getIPAddressType(ipAddress string) string {
+	if ipAddress == "" {
+		return "Unknown"
+	}
+	data, err := os.ReadFile(networkStateFile)
+	if err != nil {
+		return "Unknown"
+	}
+	return strings.TrimSpace(string(data))
 }
 
 func getDNSServers() []string {

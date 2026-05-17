@@ -11,6 +11,7 @@
 ## System Information
 
 * **Hostname:** The hostname of the virtual appliance.
+* **IP Address Type:** The IP addressing scheme used (DHCP or Static).
 * **IP Address:** The IP address of the virtual appliance that is configured either via DHCP or a static configuration.
 * **Netmask:** The subnet mask of the virtual appliance that is configured either via DHCP or a static configuration.
 * **Gateway:** The default gateway of the virtual appliance that is configured either via DHCP or a static configuration.

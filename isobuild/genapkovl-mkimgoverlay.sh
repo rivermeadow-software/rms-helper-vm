@@ -66,11 +66,6 @@ makefile root:root 0755 "$tmp"/etc/kiosk-launch <<'EOF'
 
 export TERM=xterm-256color
 clear
-
-#cd /home/appliance || exit 1
-
-#exec su -s /bin/sh appliance -c /etc/rmstool
-
 exec /etc/rmstool
 
 EOF
@@ -86,15 +81,6 @@ tty1::respawn:/etc/kiosk-launch </dev/tty1 >/dev/tty1 2>&1
 ::shutdown:/bin/umount -a -r
 EOF
 
-# mkdir -p "$tmp"/etc/network
-# makefile root:root 0644 "$tmp"/etc/network/interfaces <<EOF
-# auto lo
-# iface lo inet loopback
-
-# auto eth0
-# iface eth0 inet static
-# EOF
-
 mkdir -p "$tmp"/etc/apk
 makefile root:root 0644 "$tmp"/etc/apk/world <<EOF
 alpine-baselayout
@@ -102,6 +88,7 @@ busybox
 nftables
 doas
 qemu-guest-agent
+hvtools
 linux-virt
 EOF
 
